@@ -1021,10 +1021,11 @@ def build_nfl_training_data(seasons: list[int] | None = None) -> pd.DataFrame:
     merged["home_win"] = (merged["margin"] > 0).astype(int)
     return merged.dropna()
 
-st.set_page_config(page_title="Sportsbook Tool", layout="wide")
+st.set_page_config(page_title="Sportsbook Tool", layout="centered")
 
 # --- Mobile-responsive CSS ---
 st.markdown("""
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <style>
 /* Stack columns vertically on small screens */
 @media (max-width: 768px) {
@@ -1648,531 +1649,544 @@ inputs = {
 }
 
 
-st.subheader("Model Training & Results")
 
-
-# --- Calculate model probabilities before odds display ---
+# --- Calculate model probabilities before tabs ---
 result = predict_outcome(sport, target, inputs, models)
 apply_tracker_defaults(selected_market, target, result)
 
-# --- Odds and value bet UI ---
-st.subheader("Live Sportsbook Odds & Value Bets")
-st.caption("Moneyline value bets include implied probability and EV. Spread and total rows compare your model against the live line.")
-if matchup_snapshots:
-    for snapshot in matchup_snapshots:
-        home = snapshot["home_team"]
-        away = snapshot["away_team"]
-        st.markdown(f"**{away} at {home}**")
-        home_odds = snapshot["h2h"]["home_price"]
-        away_odds = snapshot["h2h"]["away_price"]
-        model_home_prob = result.get("home_win_prob") if target == "Game winner" else None
-        model_away_prob = result.get("away_win_prob") if target == "Game winner" else None
-        home_imp = implied_prob(home_odds) if home_odds else None
-        away_imp = implied_prob(away_odds) if away_odds else None
-        value_home = model_home_prob is not None and home_imp is not None and model_home_prob > home_imp
-        value_away = model_away_prob is not None and away_imp is not None and model_away_prob > away_imp
-        ev_home = expected_value(model_home_prob, home_odds, flat_bet)
-        ev_away = expected_value(model_away_prob, away_odds, flat_bet)
-        st.write(
-            f"{home}: Odds {format_odds(home_odds)}, Implied Prob {format_percent(home_imp)}, "
-            f"Model Prob {format_percent(model_home_prob)}, EV ${format_number(ev_home)}"
-        )
-        if value_home:
-            st.success(f"Value bet: {home}")
-        st.write(
-            f"{away}: Odds {format_odds(away_odds)}, Implied Prob {format_percent(away_imp)}, "
-            f"Model Prob {format_percent(model_away_prob)}, EV ${format_number(ev_away)}"
-        )
-        if value_away:
-            st.success(f"Value bet: {away}")
-        if snapshot["spreads"]["home_point"] is not None:
-            predicted_margin = result.get("predicted_margin")
-            spread_edge = predicted_margin + snapshot["spreads"]["home_point"] if predicted_margin is not None else None
-            st.write(
-                f"Spread board: {home} {snapshot['spreads']['home_point']:+.1f} ({format_odds(snapshot['spreads']['home_price'])}), "
-                f"{away} {snapshot['spreads']['away_point']:+.1f} ({format_odds(snapshot['spreads']['away_price'])})"
-            )
-            if spread_edge is not None:
-                st.write(f"Model vs spread line: {spread_edge:+.1f} points to the home side.")
-        if snapshot["totals"]["line"] is not None:
-            predicted_total = result.get("predicted_total")
-            total_edge = predicted_total - snapshot["totals"]["line"] if predicted_total is not None else None
-            st.write(
-                f"Total board: Over {snapshot['totals']['line']:.1f} ({format_odds(snapshot['totals']['over_price'])}), "
-                f"Under {snapshot['totals']['line']:.1f} ({format_odds(snapshot['totals']['under_price'])})"
-            )
-            if total_edge is not None:
-                st.write(f"Model vs total line: {total_edge:+.1f} points.")
-        st.markdown("---")
-elif not ODDS_API_KEY:
-    st.info("Odds data is unavailable. Set ODDS_API_KEY to load live sportsbook markets.")
-else:
-    st.info("No odds available for the selected sport/bookmaker right now.")
-
-# --- Market Intelligence: Arbitrage & Line Movement ---
-_arb_opps = detect_arbitrage(odds_data)
-_line_moves = track_line_movement(matchup_snapshots)
-if _arb_opps or _line_moves:
-    st.subheader("Market Intelligence")
-if _arb_opps:
-    st.write("#### Arbitrage Opportunities")
-    st.caption("Cross-book pricing that guarantees profit regardless of outcome.")
-    for arb in _arb_opps:
-        st.success(f"**{arb['matchup']}** — {arb['market']}: {arb['profit_pct']:.2f}% guaranteed profit  \n"
-                   f"Leg 1: {arb['side_a']} | Leg 2: {arb['side_b']}")
-if _line_moves:
-    st.write("#### Line Movement")
-    st.caption("Significant moves since your session started. Reverse movement (line moving against the public) can signal sharp action.")
-    _move_df = pd.DataFrame(_line_moves)
-    st.dataframe(_move_df, width="stretch")
-
-if show_data:
-    st.write("### Sample training data")
-    st.dataframe(data.head())
-    st.write("### Training dataset statistics")
-    st.write(data[["margin", "total_score", "home_win"]].describe())
-
-cols = st.columns(2)
-with cols[0]:
-    if selected_market is not None:
-        logo_cols = st.columns([1, 3, 1])
-        away_logo = team_logo_url(sport, selected_market["away_team"])
-        home_logo = team_logo_url(sport, selected_market["home_team"])
-        with logo_cols[0]:
-            if away_logo:
-                st.image(away_logo, width=72)
-        with logo_cols[1]:
-            st.write("### Selected matchup")
-            st.write(f"**{selected_market['away_team']} at {selected_market['home_team']}**")
-            st.caption(sportsbook_summary(selected_market))
-        with logo_cols[2]:
-            if home_logo:
-                st.image(home_logo, width=72)
-    else:
-        st.write("### Selected matchup")
-    st.write(f"**Home rating:** {home_rating}")
-    st.write(f"**Away rating:** {away_rating}")
-    st.write(f"**Home form:** {home_form:.2f}")
-    st.write(f"**Away form:** {away_form:.2f}")
-    st.write(f"**Home rest:** {home_rest} days")
-    st.write(f"**Away rest:** {away_rest} days")
-    st.write(f"**Sport:** {sport}")
-    st.write(f"**Prediction target:** {target}")
-    if sport == "NFL":
-        st.write(f"**Temperature:** {temperature}°F")
-        st.write(f"**Wind speed:** {wind_speed} mph")
-        st.write(f"**Precipitation:** {'Yes' if precipitation else 'No'}")
-
-with cols[1]:
-    st.write("### Prediction output")
-    if target == "Game winner":
-        st.metric("Home team win probability", f"{result['home_win_prob']:.1%}")
-        st.metric("Away team win probability", f"{result['away_win_prob']:.1%}")
-        st.success(result["prediction"])
-
-        parlay_prob = compute_parlay_prob(
-            result["home_win_prob"] if parlay_choice == "Home win" else result["away_win_prob"],
-            parlay_legs,
-        )
-        st.write(f"**Parlay pick:** {parlay_choice}")
-        st.write(f"**Parlay legs:** {parlay_legs}")
-        st.write(f"**Parlay probability:** {parlay_prob:.2%}")
-        if parlay_legs > 1:
-            st.write(f"**Approx. parlay odds:** {1 / parlay_prob:.1f}:1")
-    elif target == "Point spread":
-        st.metric("Predicted margin", f"{result['predicted_margin']:.1f} points")
-        st.success(result["predicted_winner"])
-    else:
-        st.metric("Predicted total score", f"{result['predicted_total']:.1f}")
-
-# --- Head-to-Head History ---
-if selected_market is not None:
-    _h2h_df = h2h_matchup_history(data, selected_market["home_team"], selected_market["away_team"], sport)
-    if not _h2h_df.empty:
-        st.write("### Head-to-Head History")
-        st.caption(f"Last {len(_h2h_df)} meetings between these teams from training data.")
-        if "home_win" in _h2h_df.columns:
-            home_wins = int(_h2h_df["home_win"].sum())
-            away_wins = len(_h2h_df) - home_wins
-            h2h_cols = st.columns(3)
-            with h2h_cols[0]:
-                st.metric(f"{selected_market['home_team']} wins (at home)", home_wins)
-            with h2h_cols[1]:
-                st.metric(f"{selected_market['away_team']} wins (at home)", away_wins)
-            with h2h_cols[2]:
-                avg_margin = _h2h_df["margin"].mean() if "margin" in _h2h_df.columns else None
-                st.metric("Avg margin (home perspective)", f"{avg_margin:+.1f}" if avg_margin is not None else "N/A")
-        st.dataframe(_h2h_df, width="stretch")
-
-st.markdown("---")
-
-st.write("## Betting Edge")
-recommendation = build_bet_recommendation(result, target, selected_market)
-st.write(recommendation)
-
-if target == "Game winner":
-    home_kelly = kelly_fraction(result["home_win_prob"], selected_market["h2h"]["home_price"] if selected_market else None)
-    away_kelly = kelly_fraction(result["away_win_prob"], selected_market["h2h"]["away_price"] if selected_market else None)
-    suggested_fraction = max(home_kelly, away_kelly)
-    suggested_wager = bankroll * min(suggested_fraction * 0.25, 0.05)
-    st.write(
-        f"Conservative Kelly stake: ${suggested_wager:.2f} "
-        f"({min(suggested_fraction * 0.25, 0.05):.1%} of bankroll, capped at 5%)."
-    )
-    if suggested_wager > flat_bet * 2:
-        st.warning("Model edge is strong, but keep sizing disciplined. Avoid scaling too quickly after a short hot streak.")
-    else:
-        st.info("No major edge detected. Flat-bet sizing is safer than pressing this matchup.")
-
-if use_ai:
-    ai_prompt = (
-        f"Summarize this betting spot in 3 short sentences. Sport: {sport}. Target: {target}. "
-        f"Home win probability: {result.get('home_win_prob')}. Away win probability: {result.get('away_win_prob')}. "
-        f"Market snapshot: {selected_market}. Recommendation: {recommendation}"
-    )
-    ai_summary = maybe_generate_ai_summary(ai_prompt)
-    st.write("### AI Summary")
-    st.write(ai_summary or recommendation)
-elif not GEMINI_API_KEY:
-    st.caption("AI summary is disabled because GEMINI_API_KEY is not set.")
-
-st.write("### Bet tracker")
-tracker_filter_cols = st.columns(2)
-with tracker_filter_cols[0]:
-    filter_sport = st.selectbox("Filter sport", ["All"] + sorted({record.get("sport", "") for record in st.session_state.bet_history if record.get("sport")}), key="filter_sport")
-    filter_market = st.selectbox("Filter market", ["All"] + sorted({record.get("market", "") for record in st.session_state.bet_history if record.get("market")}), key="filter_market")
-with tracker_filter_cols[1]:
-    filter_book = st.selectbox("Filter book", ["All"] + sorted({record.get("bookmaker", "") for record in st.session_state.bet_history if record.get("bookmaker")}), key="filter_book")
-    filter_tag = st.selectbox("Filter tag", ["All"] + sorted({record.get("tag", "") for record in st.session_state.bet_history if record.get("tag")}), key="filter_tag")
-
-bet_market = st.selectbox("Log market", ["Moneyline", "Spread", "Total"], key="bet_market")
-bet_side = st.selectbox("Log side", ["Home", "Away", "Over", "Under"], key="bet_side")
-bet_odds = st.number_input("Odds to log", step=1.0, key="bet_odds_value")
-closing_odds = st.number_input("Closing odds (optional)", step=1.0, key="closing_odds_value")
-if selected_market is not None and st.button("Fetch historical close"):
-    historical_event = historical_close_for_snapshot(selected_market, sport_key, selected_bookmaker)
-    if historical_event is not None:
-        historical_snapshot = extract_market_snapshot(historical_event)
-        if bet_market == "Moneyline":
-            if bet_side == "Home":
-                st.session_state["closing_odds_value"] = float(historical_snapshot["h2h"]["home_price"] or closing_odds)
-            else:
-                st.session_state["closing_odds_value"] = float(historical_snapshot["h2h"]["away_price"] or closing_odds)
-        elif bet_market == "Spread":
-            if bet_side == "Home":
-                st.session_state["closing_odds_value"] = float(historical_snapshot["spreads"]["home_price"] or closing_odds)
-            else:
-                st.session_state["closing_odds_value"] = float(historical_snapshot["spreads"]["away_price"] or closing_odds)
-        else:
-            if bet_side == "Over":
-                st.session_state["closing_odds_value"] = float(historical_snapshot["totals"]["over_price"] or closing_odds)
-            else:
-                st.session_state["closing_odds_value"] = float(historical_snapshot["totals"]["under_price"] or closing_odds)
-        st.success("Historical closing odds loaded from snapshot nearest game start.")
-    else:
-        st.info("Historical close not available for this event or your Odds API plan may not include historical data.")
-bet_stake = st.number_input("Stake to log ($)", min_value=1.0, value=float(flat_bet), step=1.0)
-bet_result = st.selectbox("Result", ["Pending", "Win", "Loss", "Push"], key="bet_result")
-bet_tag = st.text_input("Tag", placeholder="NBA model, revenge spot, weather edge", key="bet_tag")
-bet_notes = st.text_area("Notes", placeholder="Why this bet exists, what would invalidate it, and what to review later.", key="bet_notes")
-if st.button("Add bet to tracker"):
-    clv = closing_line_value(bet_odds, closing_odds)
-    line_value = None
-    score_fields = {}
-    if selected_market is not None:
-        if bet_market == "Spread":
-            line_value = selected_market["spreads"]["home_point"] if bet_side == "Home" else selected_market["spreads"]["away_point"]
-        elif bet_market == "Total":
-            line_value = selected_market["totals"]["line"]
-    st.session_state.bet_history.append(
-        {
-            "logged_at": pd.Timestamp.now("UTC").isoformat(),
-            "sport": sport,
-            "target": target,
-            "market": bet_market,
-            "side": bet_side,
-            "bookmaker": dict(bookmaker_options).get(selected_bookmaker, selected_bookmaker),
-            "event_id": selected_market.get("event_id") if selected_market else None,
-            "commence_time": selected_market.get("commence_time") if selected_market else None,
-            "home_team": selected_market.get("home_team") if selected_market else None,
-            "away_team": selected_market.get("away_team") if selected_market else None,
-            "matchup": matchup_label(selected_market) if selected_market else None,
-            "home_rating": home_rating,
-            "away_rating": away_rating,
-            "home_form": home_form,
-            "away_form": away_form,
-            "home_rest": home_rest,
-            "away_rest": away_rest,
-            "temperature": temperature,
-            "wind_speed": wind_speed,
-            "precipitation": precipitation,
-            "model_home_prob": result.get("home_win_prob"),
-            "model_away_prob": result.get("away_win_prob"),
-            "predicted_margin": result.get("predicted_margin"),
-            "predicted_total": result.get("predicted_total"),
-            "line": line_value,
-            "odds": bet_odds,
-            "closing_odds": closing_odds,
-            "clv": clv,
-            "stake": bet_stake,
-            "result": bet_result,
-            "tag": bet_tag,
-            "notes": bet_notes,
-            **score_fields,
-        }
-    )
-    save_bet_history(st.session_state.bet_history)
-
-settle_cols = st.columns([1, 1, 2])
-with settle_cols[0]:
-    auto_settle_requested = st.button("Auto-settle recent bets")
-with settle_cols[1]:
-    settlement_sport = st.selectbox("Settlement sport", [sport], key="settlement_sport")
-
-if auto_settle_requested and st.session_state.bet_history:
-    settlement_key = "basketball_nba" if settlement_sport == "NBA" else "americanfootball_nfl"
-    updated_history, settled_count = auto_settle_bets(st.session_state.bet_history, settlement_key)
-    st.session_state.bet_history = updated_history
-    save_bet_history(st.session_state.bet_history)
-    if settled_count:
-        st.success(f"Auto-settled {settled_count} pending bets using recent final scores.")
-    else:
-        st.info("No pending bets matched recent completed games. The scores endpoint only covers recent events.")
-
-if st.session_state.bet_history and st.button("Clear tracked bets"):
-    st.session_state.bet_history = []
-    save_bet_history(st.session_state.bet_history)
-
-if st.session_state.bet_history:
-    history_df = pd.DataFrame(st.session_state.bet_history)
-    if "logged_at" in history_df.columns:
-        history_df["logged_at"] = pd.to_datetime(history_df["logged_at"], errors="coerce")
-    history_df["profit"] = history_df.apply(
-        lambda row: row["stake"] * (row["odds"] / 100) if row["result"] == "Win" and row["odds"] > 0
-        else (row["stake"] * (100 / abs(row["odds"])) if row["result"] == "Win" else (-row["stake"] if row["result"] == "Loss" else 0)),
-        axis=1,
-    )
-    filtered_history = history_df.copy()
-    if filter_sport != "All":
-        filtered_history = filtered_history[filtered_history["sport"] == filter_sport]
-    if filter_market != "All":
-        filtered_history = filtered_history[filtered_history["market"] == filter_market]
-    if filter_book != "All":
-        filtered_history = filtered_history[filtered_history["bookmaker"] == filter_book]
-    if filter_tag != "All" and "tag" in filtered_history.columns:
-        filtered_history = filtered_history[filtered_history["tag"] == filter_tag]
-
-    export_df = filtered_history.copy()
-    if "logged_at" in export_df.columns:
-        export_df["logged_at"] = export_df["logged_at"].astype(str)
-    st.download_button(
-        "Download filtered tracker CSV",
-        data=export_df.to_csv(index=False),
-        file_name="bet_tracker_export.csv",
-        mime="text/csv",
-    )
-    # Add bet grades for settled bets
-    filtered_history["grade"] = filtered_history.apply(lambda row: grade_bet(row.to_dict()), axis=1)
-    st.dataframe(filtered_history, width="stretch")
-    st.metric("Tracked profit/loss", f"${filtered_history['profit'].sum():.2f}")
-    perf = tracker_performance_summary(filtered_history)
-    perf_cols = st.columns(3)
-    with perf_cols[0]:
-        st.metric("Settled bets", perf["bets"])
-    with perf_cols[1]:
-        st.metric("ROI", format_percent(perf["roi"]))
-    with perf_cols[2]:
-        st.metric("Avg CLV", format_number(perf["avg_clv"]))
-
-    if not filtered_history.empty:
-        chart_df = filtered_history.reset_index(drop=True).copy()
-        chart_df["bet_number"] = np.arange(1, len(chart_df) + 1)
-        chart_df["cumulative_profit"] = chart_df["profit"].cumsum()
-        st.write("### Tracker charts")
-        st.line_chart(chart_df.set_index("bet_number")[["cumulative_profit"]])
-        if "tag" in filtered_history.columns:
-            grouped_profit = filtered_history.groupby(filtered_history["tag"].fillna("").replace("", "untagged"))["profit"].sum().sort_values(ascending=False)
-            if not grouped_profit.empty:
-                st.bar_chart(grouped_profit)
-        if "logged_at" in filtered_history.columns and filtered_history["logged_at"].notna().any():
-            review_df = filtered_history.dropna(subset=["logged_at"]).copy()
-            review_df["week"] = review_df["logged_at"].dt.to_period("W").astype(str)
-            weekly_profit = review_df.groupby("week")["profit"].sum()
-            if not weekly_profit.empty:
-                st.write("### Weekly review")
-                st.bar_chart(weekly_profit)
-            market_review = review_df.groupby("market")["profit"].agg(["sum", "count"]).rename(columns={"sum": "profit", "count": "bets"})
-            if not market_review.empty:
-                st.dataframe(market_review, width="stretch")
-else:
-    st.caption("No bets logged yet. Add wagers here to track profit and loss over time.")
-
-st.write("### Model accuracy")
-try:
-    latest_game_date_str = latest_game_date.date().isoformat() if pd.notna(latest_game_date) else None
-    features = ["rating_diff", "form_diff", "rest_diff", "home_advantage", "temperature", "wind_speed", "precipitation"]
-    if all(f in data.columns for f in features):
-        X = data[features]
-    else:
-        X = data[[c for c in features if c in data.columns]]
-    y = data["home_win"]
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=42)
-    y_pred = models[0].predict(X_test)
-    home_win_accuracy = accuracy_score(y_test, y_pred)
-    st.write(f"Home-win classification accuracy: {home_win_accuracy:.3f}")
-
-    spread_preds = models[1].predict(X_test)
-    mae_spread = mean_absolute_error(data.loc[X_test.index, "margin"], spread_preds)
-    st.write(f"Point spread MAE: {mae_spread:.2f} points")
-
-    total_features = ["home_rating", "away_rating", "home_form", "away_form", "home_rest", "away_rest", "temperature", "wind_speed", "precipitation"]
-    if all(f in data.columns for f in total_features):
-        X_total = data[total_features]
-    else:
-        X_total = data[[c for c in total_features if c in data.columns]]
-    X_total_train, X_total_test, y_total_train, y_total_test = train_test_split(
-        X_total, data["total_score"], test_size=0.25, random_state=42
-    )
-    total_preds = models[2].predict(X_total_test)
-    mae_total = mean_absolute_error(y_total_test, total_preds)
-    st.write(f"Total score MAE: {mae_total:.2f} points")
-
-    record_model_snapshot(
-        sport=sport,
-        training_rows=len(data),
-        learned_rows=learned_rows,
-        latest_game_date=latest_game_date_str,
-        accuracy=home_win_accuracy,
-        spread_mae=mae_spread,
-        total_mae=mae_total,
-    )
-
-    st.write("### Calibration & backtest")
-    home_win_probs = models[0].predict_proba(X_test)[:, 1]
-    calib = calibration_table(home_win_probs, y_test)
-    if not calib.empty:
-        st.dataframe(calib, width="stretch")
-        chart_data = calib[["predicted_prob", "actual_rate"]].rename(columns={"predicted_prob": "Predicted", "actual_rate": "Actual"})
-        st.line_chart(chart_data)
-    backtest = model_backtest_table(home_win_probs, y_test)
-    st.dataframe(backtest, width="stretch")
-    st.caption("Backtest uses a simple holdout proxy: bet the model side only when confidence exceeds the threshold, scored at -110 equivalent pricing.")
-
-    st.write("### Historical closing-line backtest")
-    historical_sample_size = st.slider("Historical closing-line sample", min_value=1, max_value=5, value=3)
-    if st.button("Run historical closing-line backtest"):
-        historical_backtest = historical_moneyline_backtest(data, sport_key, selected_bookmaker, historical_sample_size)
-        if not historical_backtest.empty:
-            st.dataframe(historical_backtest, width="stretch")
-            st.metric("Historical backtest units", f"{historical_backtest['units'].sum():.2f}u")
-            st.metric("Historical win rate", format_percent((historical_backtest["result"] == "Win").mean()))
-            st.caption("This uses archived Odds API moneyline snapshots matched by teams and game time. Historical endpoints require a paid plan and consume quota.")
-        else:
-            st.info("No archived odds snapshots were returned for the sampled games. Historical odds may be unavailable on your plan or for the chosen bookmaker.")
-
-    history_frame = model_history_frame(sport)
-    if not history_frame.empty:
-        st.write("### Model trend")
-        recent_history = history_frame.tail(20).copy()
-        display_history = recent_history[["timestamp", "training_rows", "learned_rows", "accuracy", "spread_mae", "total_mae"]].copy()
-        display_history["timestamp"] = display_history["timestamp"].dt.strftime("%Y-%m-%d %H:%M")
-        latest_snapshot = recent_history.iloc[-1]
-        previous_snapshot = recent_history.iloc[-2] if len(recent_history) > 1 else None
-        trend_cols = st.columns(3)
-        with trend_cols[0]:
-            st.metric(
-                "Accuracy trend",
-                f"{latest_snapshot['accuracy']:.3f}",
-                None if previous_snapshot is None else f"{latest_snapshot['accuracy'] - previous_snapshot['accuracy']:+.3f}",
-            )
-        with trend_cols[1]:
-            st.metric(
-                "Spread MAE trend",
-                f"{latest_snapshot['spread_mae']:.2f}",
-                None if previous_snapshot is None else f"{previous_snapshot['spread_mae'] - latest_snapshot['spread_mae']:+.2f}",
-            )
-        with trend_cols[2]:
-            st.metric(
-                "Total MAE trend",
-                f"{latest_snapshot['total_mae']:.2f}",
-                None if previous_snapshot is None else f"{previous_snapshot['total_mae'] - latest_snapshot['total_mae']:+.2f}",
-            )
-        trend_chart = recent_history.set_index("timestamp")[["accuracy", "spread_mae", "total_mae"]]
-        st.line_chart(trend_chart)
-        st.dataframe(display_history, width="stretch")
-
-    # --- Feature Importance ---
-    st.write("### Feature Importance")
-    st.caption("Model coefficient magnitudes — how much each input moves the prediction.")
-    fi = feature_importance_data(models, sport)
-    if not fi.empty:
-        for model_name in fi["model"].unique():
-            model_fi = fi[fi["model"] == model_name].copy()
-            model_fi["abs_importance"] = model_fi["importance"].abs()
-            model_fi = model_fi.sort_values("abs_importance", ascending=False)
-            chart = model_fi.set_index("feature")[["importance"]]
-            st.write(f"**{model_name}**")
-            st.bar_chart(chart)
-except Exception as e:
-    st.warning(f"Could not compute model accuracy: {e}")
-
-st.info(
-    "Treat this as a decision-support tool, not an autopilot. Focus on closing line value, disciplined staking, and logged results over time."
+tab_predictions, tab_odds, tab_tracker, tab_analytics, tab_chat = st.tabs(
+    ["📊 Predictions", "📈 Odds & Markets", "📝 Bet Tracker", "🔬 Analytics", "💬 Chat"]
 )
 
-# --- Betting Assistant Chat ---
-st.markdown("---")
-st.write("## Betting Assistant")
-st.caption("Ask anything about the current matchup, betting strategy, bankroll management, or value hunting.")
+# --- Odds and value bet UI ---
+with tab_odds:
+    st.subheader("Live Sportsbook Odds & Value Bets")
+    st.caption("Moneyline value bets include implied probability and EV. Spread and total rows compare your model against the live line.")
+    if matchup_snapshots:
+        for snapshot in matchup_snapshots:
+            home = snapshot["home_team"]
+            away = snapshot["away_team"]
+            st.markdown(f"**{away} at {home}**")
+            home_odds = snapshot["h2h"]["home_price"]
+            away_odds = snapshot["h2h"]["away_price"]
+            model_home_prob = result.get("home_win_prob") if target == "Game winner" else None
+            model_away_prob = result.get("away_win_prob") if target == "Game winner" else None
+            home_imp = implied_prob(home_odds) if home_odds else None
+            away_imp = implied_prob(away_odds) if away_odds else None
+            value_home = model_home_prob is not None and home_imp is not None and model_home_prob > home_imp
+            value_away = model_away_prob is not None and away_imp is not None and model_away_prob > away_imp
+            ev_home = expected_value(model_home_prob, home_odds, flat_bet)
+            ev_away = expected_value(model_away_prob, away_odds, flat_bet)
+            st.write(
+                f"{home}: Odds {format_odds(home_odds)}, Implied Prob {format_percent(home_imp)}, "
+                f"Model Prob {format_percent(model_home_prob)}, EV ${format_number(ev_home)}"
+            )
+            if value_home:
+                st.success(f"Value bet: {home}")
+            st.write(
+                f"{away}: Odds {format_odds(away_odds)}, Implied Prob {format_percent(away_imp)}, "
+                f"Model Prob {format_percent(model_away_prob)}, EV ${format_number(ev_away)}"
+            )
+            if value_away:
+                st.success(f"Value bet: {away}")
+            if snapshot["spreads"]["home_point"] is not None:
+                predicted_margin = result.get("predicted_margin")
+                spread_edge = predicted_margin + snapshot["spreads"]["home_point"] if predicted_margin is not None else None
+                st.write(
+                    f"Spread board: {home} {snapshot['spreads']['home_point']:+.1f} ({format_odds(snapshot['spreads']['home_price'])}), "
+                    f"{away} {snapshot['spreads']['away_point']:+.1f} ({format_odds(snapshot['spreads']['away_price'])})"
+                )
+                if spread_edge is not None:
+                    st.write(f"Model vs spread line: {spread_edge:+.1f} points to the home side.")
+            if snapshot["totals"]["line"] is not None:
+                predicted_total = result.get("predicted_total")
+                total_edge = predicted_total - snapshot["totals"]["line"] if predicted_total is not None else None
+                st.write(
+                    f"Total board: Over {snapshot['totals']['line']:.1f} ({format_odds(snapshot['totals']['over_price'])}), "
+                    f"Under {snapshot['totals']['line']:.1f} ({format_odds(snapshot['totals']['under_price'])})"
+                )
+                if total_edge is not None:
+                    st.write(f"Model vs total line: {total_edge:+.1f} points.")
+            st.markdown("---")
+    elif not ODDS_API_KEY:
+        st.info("Odds data is unavailable. Set ODDS_API_KEY to load live sportsbook markets.")
+    else:
+        st.info("No odds available for the selected sport/bookmaker right now.")
 
-if not GEMINI_API_KEY or genai is None:
-    st.warning("Set GEMINI_API_KEY in your .env file to enable the betting assistant.")
-else:
-    if "chat_messages" not in st.session_state:
-        st.session_state.chat_messages = []
+    # --- Market Intelligence: Arbitrage & Line Movement ---
+    _arb_opps = detect_arbitrage(odds_data)
+    _line_moves = track_line_movement(matchup_snapshots)
+    if _arb_opps or _line_moves:
+        st.subheader("Market Intelligence")
+    if _arb_opps:
+        st.write("#### Arbitrage Opportunities")
+        st.caption("Cross-book pricing that guarantees profit regardless of outcome.")
+        for arb in _arb_opps:
+            st.success(f"**{arb['matchup']}** — {arb['market']}: {arb['profit_pct']:.2f}% guaranteed profit  \n"
+                       f"Leg 1: {arb['side_a']} | Leg 2: {arb['side_b']}")
+    if _line_moves:
+        st.write("#### Line Movement")
+        st.caption("Significant moves since your session started. Reverse movement (line moving against the public) can signal sharp action.")
+        _move_df = pd.DataFrame(_line_moves)
+        st.dataframe(_move_df, width="stretch")
 
-    # Build a system context from the current app state
-    _chat_context = (
-        f"You are an expert sports betting analyst assistant embedded in a betting analysis app. "
-        f"Current sport: {sport}. Prediction target: {target}. "
-        f"Selected matchup: {matchup_label(selected_market) if selected_market else 'None selected'}. "
-        f"Home win probability: {result.get('home_win_prob', 'N/A')}. "
-        f"Away win probability: {result.get('away_win_prob', 'N/A')}. "
-        f"Predicted margin: {result.get('predicted_margin', 'N/A')}. "
-        f"Predicted total: {result.get('predicted_total', 'N/A')}. "
-        f"Bankroll: ${bankroll}. Flat bet: ${flat_bet}. "
-        f"Answer concisely and practically. Focus on profitable betting habits, value, and discipline."
+
+with tab_predictions:
+    cols = st.columns(2)
+    with cols[0]:
+        if selected_market is not None:
+            logo_cols = st.columns([1, 3, 1])
+            away_logo = team_logo_url(sport, selected_market["away_team"])
+            home_logo = team_logo_url(sport, selected_market["home_team"])
+            with logo_cols[0]:
+                if away_logo:
+                    st.image(away_logo, width=72)
+            with logo_cols[1]:
+                st.write("### Selected matchup")
+                st.write(f"**{selected_market['away_team']} at {selected_market['home_team']}**")
+                st.caption(sportsbook_summary(selected_market))
+            with logo_cols[2]:
+                if home_logo:
+                    st.image(home_logo, width=72)
+        else:
+            st.write("### Selected matchup")
+        st.write(f"**Home rating:** {home_rating}")
+        st.write(f"**Away rating:** {away_rating}")
+        st.write(f"**Home form:** {home_form:.2f}")
+        st.write(f"**Away form:** {away_form:.2f}")
+        st.write(f"**Home rest:** {home_rest} days")
+        st.write(f"**Away rest:** {away_rest} days")
+        st.write(f"**Sport:** {sport}")
+        st.write(f"**Prediction target:** {target}")
+        if sport == "NFL":
+            st.write(f"**Temperature:** {temperature}°F")
+            st.write(f"**Wind speed:** {wind_speed} mph")
+            st.write(f"**Precipitation:** {'Yes' if precipitation else 'No'}")
+
+    with cols[1]:
+        st.write("### Prediction output")
+        if target == "Game winner":
+            st.metric("Home team win probability", f"{result['home_win_prob']:.1%}")
+            st.metric("Away team win probability", f"{result['away_win_prob']:.1%}")
+            st.success(result["prediction"])
+
+            parlay_prob = compute_parlay_prob(
+                result["home_win_prob"] if parlay_choice == "Home win" else result["away_win_prob"],
+                parlay_legs,
+            )
+            st.write(f"**Parlay pick:** {parlay_choice}")
+            st.write(f"**Parlay legs:** {parlay_legs}")
+            st.write(f"**Parlay probability:** {parlay_prob:.2%}")
+            if parlay_legs > 1:
+                st.write(f"**Approx. parlay odds:** {1 / parlay_prob:.1f}:1")
+        elif target == "Point spread":
+            st.metric("Predicted margin", f"{result['predicted_margin']:.1f} points")
+            st.success(result["predicted_winner"])
+        else:
+            st.metric("Predicted total score", f"{result['predicted_total']:.1f}")
+
+    # --- Head-to-Head History ---
+    if selected_market is not None:
+        _h2h_df = h2h_matchup_history(data, selected_market["home_team"], selected_market["away_team"], sport)
+        if not _h2h_df.empty:
+            st.write("### Head-to-Head History")
+            st.caption(f"Last {len(_h2h_df)} meetings between these teams from training data.")
+            if "home_win" in _h2h_df.columns:
+                home_wins = int(_h2h_df["home_win"].sum())
+                away_wins = len(_h2h_df) - home_wins
+                h2h_cols = st.columns(3)
+                with h2h_cols[0]:
+                    st.metric(f"{selected_market['home_team']} wins (at home)", home_wins)
+                with h2h_cols[1]:
+                    st.metric(f"{selected_market['away_team']} wins (at home)", away_wins)
+                with h2h_cols[2]:
+                    avg_margin = _h2h_df["margin"].mean() if "margin" in _h2h_df.columns else None
+                    st.metric("Avg margin (home perspective)", f"{avg_margin:+.1f}" if avg_margin is not None else "N/A")
+            st.dataframe(_h2h_df, width="stretch")
+
+    st.markdown("---")
+
+    st.write("## Betting Edge")
+    recommendation = build_bet_recommendation(result, target, selected_market)
+    st.write(recommendation)
+
+    if target == "Game winner":
+        home_kelly = kelly_fraction(result["home_win_prob"], selected_market["h2h"]["home_price"] if selected_market else None)
+        away_kelly = kelly_fraction(result["away_win_prob"], selected_market["h2h"]["away_price"] if selected_market else None)
+        suggested_fraction = max(home_kelly, away_kelly)
+        suggested_wager = bankroll * min(suggested_fraction * 0.25, 0.05)
+        st.write(
+            f"Conservative Kelly stake: ${suggested_wager:.2f} "
+            f"({min(suggested_fraction * 0.25, 0.05):.1%} of bankroll, capped at 5%)."
+        )
+        if suggested_wager > flat_bet * 2:
+            st.warning("Model edge is strong, but keep sizing disciplined. Avoid scaling too quickly after a short hot streak.")
+        else:
+            st.info("No major edge detected. Flat-bet sizing is safer than pressing this matchup.")
+
+    if use_ai:
+        ai_prompt = (
+            f"Summarize this betting spot in 3 short sentences. Sport: {sport}. Target: {target}. "
+            f"Home win probability: {result.get('home_win_prob')}. Away win probability: {result.get('away_win_prob')}. "
+            f"Market snapshot: {selected_market}. Recommendation: {recommendation}"
+        )
+        ai_summary = maybe_generate_ai_summary(ai_prompt)
+        st.write("### AI Summary")
+        st.write(ai_summary or recommendation)
+    elif not GEMINI_API_KEY:
+        st.caption("AI summary is disabled because GEMINI_API_KEY is not set.")
+
+
+with tab_tracker:
+    st.write("### Bet tracker")
+    tracker_filter_cols = st.columns(2)
+    with tracker_filter_cols[0]:
+        filter_sport = st.selectbox("Filter sport", ["All"] + sorted({record.get("sport", "") for record in st.session_state.bet_history if record.get("sport")}), key="filter_sport")
+        filter_market = st.selectbox("Filter market", ["All"] + sorted({record.get("market", "") for record in st.session_state.bet_history if record.get("market")}), key="filter_market")
+    with tracker_filter_cols[1]:
+        filter_book = st.selectbox("Filter book", ["All"] + sorted({record.get("bookmaker", "") for record in st.session_state.bet_history if record.get("bookmaker")}), key="filter_book")
+        filter_tag = st.selectbox("Filter tag", ["All"] + sorted({record.get("tag", "") for record in st.session_state.bet_history if record.get("tag")}), key="filter_tag")
+
+    bet_market = st.selectbox("Log market", ["Moneyline", "Spread", "Total"], key="bet_market")
+    bet_side = st.selectbox("Log side", ["Home", "Away", "Over", "Under"], key="bet_side")
+    bet_odds = st.number_input("Odds to log", step=1.0, key="bet_odds_value")
+    closing_odds = st.number_input("Closing odds (optional)", step=1.0, key="closing_odds_value")
+    if selected_market is not None and st.button("Fetch historical close"):
+        historical_event = historical_close_for_snapshot(selected_market, sport_key, selected_bookmaker)
+        if historical_event is not None:
+            historical_snapshot = extract_market_snapshot(historical_event)
+            if bet_market == "Moneyline":
+                if bet_side == "Home":
+                    st.session_state["closing_odds_value"] = float(historical_snapshot["h2h"]["home_price"] or closing_odds)
+                else:
+                    st.session_state["closing_odds_value"] = float(historical_snapshot["h2h"]["away_price"] or closing_odds)
+            elif bet_market == "Spread":
+                if bet_side == "Home":
+                    st.session_state["closing_odds_value"] = float(historical_snapshot["spreads"]["home_price"] or closing_odds)
+                else:
+                    st.session_state["closing_odds_value"] = float(historical_snapshot["spreads"]["away_price"] or closing_odds)
+            else:
+                if bet_side == "Over":
+                    st.session_state["closing_odds_value"] = float(historical_snapshot["totals"]["over_price"] or closing_odds)
+                else:
+                    st.session_state["closing_odds_value"] = float(historical_snapshot["totals"]["under_price"] or closing_odds)
+            st.success("Historical closing odds loaded from snapshot nearest game start.")
+        else:
+            st.info("Historical close not available for this event or your Odds API plan may not include historical data.")
+    bet_stake = st.number_input("Stake to log ($)", min_value=1.0, value=float(flat_bet), step=1.0)
+    bet_result = st.selectbox("Result", ["Pending", "Win", "Loss", "Push"], key="bet_result")
+    bet_tag = st.text_input("Tag", placeholder="NBA model, revenge spot, weather edge", key="bet_tag")
+    bet_notes = st.text_area("Notes", placeholder="Why this bet exists, what would invalidate it, and what to review later.", key="bet_notes")
+    if st.button("Add bet to tracker"):
+        clv = closing_line_value(bet_odds, closing_odds)
+        line_value = None
+        score_fields = {}
+        if selected_market is not None:
+            if bet_market == "Spread":
+                line_value = selected_market["spreads"]["home_point"] if bet_side == "Home" else selected_market["spreads"]["away_point"]
+            elif bet_market == "Total":
+                line_value = selected_market["totals"]["line"]
+        st.session_state.bet_history.append(
+            {
+                "logged_at": pd.Timestamp.now("UTC").isoformat(),
+                "sport": sport,
+                "target": target,
+                "market": bet_market,
+                "side": bet_side,
+                "bookmaker": dict(bookmaker_options).get(selected_bookmaker, selected_bookmaker),
+                "event_id": selected_market.get("event_id") if selected_market else None,
+                "commence_time": selected_market.get("commence_time") if selected_market else None,
+                "home_team": selected_market.get("home_team") if selected_market else None,
+                "away_team": selected_market.get("away_team") if selected_market else None,
+                "matchup": matchup_label(selected_market) if selected_market else None,
+                "home_rating": home_rating,
+                "away_rating": away_rating,
+                "home_form": home_form,
+                "away_form": away_form,
+                "home_rest": home_rest,
+                "away_rest": away_rest,
+                "temperature": temperature,
+                "wind_speed": wind_speed,
+                "precipitation": precipitation,
+                "model_home_prob": result.get("home_win_prob"),
+                "model_away_prob": result.get("away_win_prob"),
+                "predicted_margin": result.get("predicted_margin"),
+                "predicted_total": result.get("predicted_total"),
+                "line": line_value,
+                "odds": bet_odds,
+                "closing_odds": closing_odds,
+                "clv": clv,
+                "stake": bet_stake,
+                "result": bet_result,
+                "tag": bet_tag,
+                "notes": bet_notes,
+                **score_fields,
+            }
+        )
+        save_bet_history(st.session_state.bet_history)
+
+    settle_cols = st.columns([1, 1, 2])
+    with settle_cols[0]:
+        auto_settle_requested = st.button("Auto-settle recent bets")
+    with settle_cols[1]:
+        settlement_sport = st.selectbox("Settlement sport", [sport], key="settlement_sport")
+
+    if auto_settle_requested and st.session_state.bet_history:
+        settlement_key = "basketball_nba" if settlement_sport == "NBA" else "americanfootball_nfl"
+        updated_history, settled_count = auto_settle_bets(st.session_state.bet_history, settlement_key)
+        st.session_state.bet_history = updated_history
+        save_bet_history(st.session_state.bet_history)
+        if settled_count:
+            st.success(f"Auto-settled {settled_count} pending bets using recent final scores.")
+        else:
+            st.info("No pending bets matched recent completed games. The scores endpoint only covers recent events.")
+
+    if st.session_state.bet_history and st.button("Clear tracked bets"):
+        st.session_state.bet_history = []
+        save_bet_history(st.session_state.bet_history)
+
+    if st.session_state.bet_history:
+        history_df = pd.DataFrame(st.session_state.bet_history)
+        if "logged_at" in history_df.columns:
+            history_df["logged_at"] = pd.to_datetime(history_df["logged_at"], errors="coerce")
+        history_df["profit"] = history_df.apply(
+            lambda row: row["stake"] * (row["odds"] / 100) if row["result"] == "Win" and row["odds"] > 0
+            else (row["stake"] * (100 / abs(row["odds"])) if row["result"] == "Win" else (-row["stake"] if row["result"] == "Loss" else 0)),
+            axis=1,
+        )
+        filtered_history = history_df.copy()
+        if filter_sport != "All":
+            filtered_history = filtered_history[filtered_history["sport"] == filter_sport]
+        if filter_market != "All":
+            filtered_history = filtered_history[filtered_history["market"] == filter_market]
+        if filter_book != "All":
+            filtered_history = filtered_history[filtered_history["bookmaker"] == filter_book]
+        if filter_tag != "All" and "tag" in filtered_history.columns:
+            filtered_history = filtered_history[filtered_history["tag"] == filter_tag]
+
+        export_df = filtered_history.copy()
+        if "logged_at" in export_df.columns:
+            export_df["logged_at"] = export_df["logged_at"].astype(str)
+        st.download_button(
+            "Download filtered tracker CSV",
+            data=export_df.to_csv(index=False),
+            file_name="bet_tracker_export.csv",
+            mime="text/csv",
+        )
+        # Add bet grades for settled bets
+        filtered_history["grade"] = filtered_history.apply(lambda row: grade_bet(row.to_dict()), axis=1)
+        st.dataframe(filtered_history, width="stretch")
+        st.metric("Tracked profit/loss", f"${filtered_history['profit'].sum():.2f}")
+        perf = tracker_performance_summary(filtered_history)
+        perf_cols = st.columns(3)
+        with perf_cols[0]:
+            st.metric("Settled bets", perf["bets"])
+        with perf_cols[1]:
+            st.metric("ROI", format_percent(perf["roi"]))
+        with perf_cols[2]:
+            st.metric("Avg CLV", format_number(perf["avg_clv"]))
+
+        if not filtered_history.empty:
+            chart_df = filtered_history.reset_index(drop=True).copy()
+            chart_df["bet_number"] = np.arange(1, len(chart_df) + 1)
+            chart_df["cumulative_profit"] = chart_df["profit"].cumsum()
+            st.write("### Tracker charts")
+            st.line_chart(chart_df.set_index("bet_number")[["cumulative_profit"]])
+            if "tag" in filtered_history.columns:
+                grouped_profit = filtered_history.groupby(filtered_history["tag"].fillna("").replace("", "untagged"))["profit"].sum().sort_values(ascending=False)
+                if not grouped_profit.empty:
+                    st.bar_chart(grouped_profit)
+            if "logged_at" in filtered_history.columns and filtered_history["logged_at"].notna().any():
+                review_df = filtered_history.dropna(subset=["logged_at"]).copy()
+                review_df["week"] = review_df["logged_at"].dt.to_period("W").astype(str)
+                weekly_profit = review_df.groupby("week")["profit"].sum()
+                if not weekly_profit.empty:
+                    st.write("### Weekly review")
+                    st.bar_chart(weekly_profit)
+                market_review = review_df.groupby("market")["profit"].agg(["sum", "count"]).rename(columns={"sum": "profit", "count": "bets"})
+                if not market_review.empty:
+                    st.dataframe(market_review, width="stretch")
+    else:
+        st.caption("No bets logged yet. Add wagers here to track profit and loss over time.")
+
+
+with tab_analytics:
+    if show_data:
+        st.write("### Sample training data")
+        st.dataframe(data.head())
+        st.write("### Training dataset statistics")
+        st.write(data[["margin", "total_score", "home_win"]].describe())
+
+
+    st.write("### Model accuracy")
+    try:
+        latest_game_date_str = latest_game_date.date().isoformat() if pd.notna(latest_game_date) else None
+        features = ["rating_diff", "form_diff", "rest_diff", "home_advantage", "temperature", "wind_speed", "precipitation"]
+        if all(f in data.columns for f in features):
+            X = data[features]
+        else:
+            X = data[[c for c in features if c in data.columns]]
+        y = data["home_win"]
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=42)
+        y_pred = models[0].predict(X_test)
+        home_win_accuracy = accuracy_score(y_test, y_pred)
+        st.write(f"Home-win classification accuracy: {home_win_accuracy:.3f}")
+
+        spread_preds = models[1].predict(X_test)
+        mae_spread = mean_absolute_error(data.loc[X_test.index, "margin"], spread_preds)
+        st.write(f"Point spread MAE: {mae_spread:.2f} points")
+
+        total_features = ["home_rating", "away_rating", "home_form", "away_form", "home_rest", "away_rest", "temperature", "wind_speed", "precipitation"]
+        if all(f in data.columns for f in total_features):
+            X_total = data[total_features]
+        else:
+            X_total = data[[c for c in total_features if c in data.columns]]
+        X_total_train, X_total_test, y_total_train, y_total_test = train_test_split(
+            X_total, data["total_score"], test_size=0.25, random_state=42
+        )
+        total_preds = models[2].predict(X_total_test)
+        mae_total = mean_absolute_error(y_total_test, total_preds)
+        st.write(f"Total score MAE: {mae_total:.2f} points")
+
+        record_model_snapshot(
+            sport=sport,
+            training_rows=len(data),
+            learned_rows=learned_rows,
+            latest_game_date=latest_game_date_str,
+            accuracy=home_win_accuracy,
+            spread_mae=mae_spread,
+            total_mae=mae_total,
+        )
+
+        home_win_probs = models[0].predict_proba(X_test)[:, 1]
+        with st.expander("Calibration & backtest", expanded=False):
+            calib = calibration_table(home_win_probs, y_test)
+            if not calib.empty:
+                st.dataframe(calib, width="stretch")
+                chart_data = calib[["predicted_prob", "actual_rate"]].rename(columns={"predicted_prob": "Predicted", "actual_rate": "Actual"})
+                st.line_chart(chart_data)
+            backtest = model_backtest_table(home_win_probs, y_test)
+            st.dataframe(backtest, width="stretch")
+            st.caption("Backtest uses a simple holdout proxy: bet the model side only when confidence exceeds the threshold, scored at -110 equivalent pricing.")
+
+        with st.expander("Historical closing-line backtest", expanded=False):
+            historical_sample_size = st.slider("Historical closing-line sample", min_value=1, max_value=5, value=3)
+            if st.button("Run historical closing-line backtest"):
+                historical_backtest = historical_moneyline_backtest(data, sport_key, selected_bookmaker, historical_sample_size)
+                if not historical_backtest.empty:
+                    st.dataframe(historical_backtest, width="stretch")
+                    st.metric("Historical backtest units", f"{historical_backtest['units'].sum():.2f}u")
+                    st.metric("Historical win rate", format_percent((historical_backtest["result"] == "Win").mean()))
+                    st.caption("This uses archived Odds API moneyline snapshots matched by teams and game time. Historical endpoints require a paid plan and consume quota.")
+                else:
+                    st.info("No archived odds snapshots were returned for the sampled games. Historical odds may be unavailable on your plan or for the chosen bookmaker.")
+
+        history_frame = model_history_frame(sport)
+        if not history_frame.empty:
+            with st.expander("Model trend", expanded=False):
+                recent_history = history_frame.tail(20).copy()
+                display_history = recent_history[["timestamp", "training_rows", "learned_rows", "accuracy", "spread_mae", "total_mae"]].copy()
+                display_history["timestamp"] = display_history["timestamp"].dt.strftime("%Y-%m-%d %H:%M")
+                latest_snapshot = recent_history.iloc[-1]
+                previous_snapshot = recent_history.iloc[-2] if len(recent_history) > 1 else None
+                trend_cols = st.columns(3)
+                with trend_cols[0]:
+                    st.metric(
+                        "Accuracy trend",
+                        f"{latest_snapshot['accuracy']:.3f}",
+                        None if previous_snapshot is None else f"{latest_snapshot['accuracy'] - previous_snapshot['accuracy']:+.3f}",
+                    )
+                with trend_cols[1]:
+                    st.metric(
+                        "Spread MAE trend",
+                        f"{latest_snapshot['spread_mae']:.2f}",
+                        None if previous_snapshot is None else f"{previous_snapshot['spread_mae'] - latest_snapshot['spread_mae']:+.2f}",
+                    )
+                with trend_cols[2]:
+                    st.metric(
+                        "Total MAE trend",
+                        f"{latest_snapshot['total_mae']:.2f}",
+                        None if previous_snapshot is None else f"{previous_snapshot['total_mae'] - latest_snapshot['total_mae']:+.2f}",
+                    )
+                trend_chart = recent_history.set_index("timestamp")[["accuracy", "spread_mae", "total_mae"]]
+                st.line_chart(trend_chart)
+                st.dataframe(display_history, width="stretch")
+
+        # --- Feature Importance ---
+        st.write("### Feature Importance")
+        st.caption("Model coefficient magnitudes — how much each input moves the prediction.")
+        fi = feature_importance_data(models, sport)
+        if not fi.empty:
+            for model_name in fi["model"].unique():
+                model_fi = fi[fi["model"] == model_name].copy()
+                model_fi["abs_importance"] = model_fi["importance"].abs()
+                model_fi = model_fi.sort_values("abs_importance", ascending=False)
+                chart = model_fi.set_index("feature")[["importance"]]
+                st.write(f"**{model_name}**")
+                st.bar_chart(chart)
+    except Exception as e:
+        st.warning(f"Could not compute model accuracy: {e}")
+
+    st.info(
+        "Treat this as a decision-support tool, not an autopilot. Focus on closing line value, disciplined staking, and logged results over time."
     )
 
-    # Render chat history
-    for msg in st.session_state.chat_messages:
-        with st.chat_message(msg["role"]):
-            st.write(msg["content"])
 
-    # Chat input
-    user_input = st.chat_input("Ask the betting assistant...")
-    if user_input:
-        st.session_state.chat_messages.append({"role": "user", "content": user_input})
-        with st.chat_message("user"):
-            st.write(user_input)
+with tab_chat:
+    # --- Betting Assistant Chat ---
+    st.markdown("---")
+    st.write("## Betting Assistant")
+    st.caption("Ask anything about the current matchup, betting strategy, bankroll management, or value hunting.")
 
-        with st.chat_message("assistant"):
-            with st.spinner("Thinking..."):
-                # Build full conversation for the API
-                full_prompt = _chat_context + "\n\nConversation so far:\n"
-                for msg in st.session_state.chat_messages[:-1]:
-                    full_prompt += f"{msg['role'].capitalize()}: {msg['content']}\n"
-                full_prompt += f"User: {user_input}\nAssistant:"
+    if not GEMINI_API_KEY or genai is None:
+        st.warning("Set GEMINI_API_KEY in your .env file to enable the betting assistant.")
+    else:
+        if "chat_messages" not in st.session_state:
+            st.session_state.chat_messages = []
 
-                reply = maybe_generate_ai_summary(full_prompt)
-                if reply:
-                    st.write(reply)
-                    st.session_state.chat_messages.append({"role": "assistant", "content": reply})
-                else:
-                    fallback = "AI assistant is unavailable right now (quota or key issue). Check your GEMINI_API_KEY."
-                    st.warning(fallback)
-                    st.session_state.chat_messages.append({"role": "assistant", "content": fallback})
+        # Build a system context from the current app state
+        _chat_context = (
+            f"You are an expert sports betting analyst assistant embedded in a betting analysis app. "
+            f"Current sport: {sport}. Prediction target: {target}. "
+            f"Selected matchup: {matchup_label(selected_market) if selected_market else 'None selected'}. "
+            f"Home win probability: {result.get('home_win_prob', 'N/A')}. "
+            f"Away win probability: {result.get('away_win_prob', 'N/A')}. "
+            f"Predicted margin: {result.get('predicted_margin', 'N/A')}. "
+            f"Predicted total: {result.get('predicted_total', 'N/A')}. "
+            f"Bankroll: ${bankroll}. Flat bet: ${flat_bet}. "
+            f"Answer concisely and practically. Focus on profitable betting habits, value, and discipline."
+        )
 
-    if st.session_state.chat_messages and st.button("Clear chat"):
-        st.session_state.chat_messages = []
-        st.rerun()
+        # Render chat history
+        for msg in st.session_state.chat_messages:
+            with st.chat_message(msg["role"]):
+                st.write(msg["content"])
+
+        # Chat input
+        user_input = st.chat_input("Ask the betting assistant...")
+        if user_input:
+            st.session_state.chat_messages.append({"role": "user", "content": user_input})
+            with st.chat_message("user"):
+                st.write(user_input)
+
+            with st.chat_message("assistant"):
+                with st.spinner("Thinking..."):
+                    # Build full conversation for the API
+                    full_prompt = _chat_context + "\n\nConversation so far:\n"
+                    for msg in st.session_state.chat_messages[:-1]:
+                        full_prompt += f"{msg['role'].capitalize()}: {msg['content']}\n"
+                    full_prompt += f"User: {user_input}\nAssistant:"
+
+                    reply = maybe_generate_ai_summary(full_prompt)
+                    if reply:
+                        st.write(reply)
+                        st.session_state.chat_messages.append({"role": "assistant", "content": reply})
+                    else:
+                        fallback = "AI assistant is unavailable right now (quota or key issue). Check your GEMINI_API_KEY."
+                        st.warning(fallback)
+                        st.session_state.chat_messages.append({"role": "assistant", "content": fallback})
+
+        if st.session_state.chat_messages and st.button("Clear chat"):
+            st.session_state.chat_messages = []
+            st.rerun()
+
