@@ -453,6 +453,39 @@ def model_history_frame(sport: str) -> pd.DataFrame:
     frame["timestamp"] = pd.to_datetime(frame["timestamp"], errors="coerce")
     return frame.sort_values("timestamp")
 
+def todays_games(odds_data, sport):
+    """Filter odds_data to games commencing today (local time) and return display-ready list."""
+    if not odds_data:
+        return []
+    from datetime import datetime, timezone
+    today = datetime.now().date()
+    games = []
+    for game in odds_data:
+        ct = game.get("commence_time")
+        if not ct:
+            continue
+        try:
+            game_dt = datetime.fromisoformat(ct.replace("Z", "+00:00")).astimezone()
+            if game_dt.date() != today:
+                continue
+        except (ValueError, TypeError):
+            continue
+        snapshot = extract_market_snapshot(game)
+        games.append({
+            "time": game_dt.strftime("%-I:%M %p"),
+            "home": snapshot["home_team"],
+            "away": snapshot["away_team"],
+            "home_odds": snapshot["h2h"]["home_price"],
+            "away_odds": snapshot["h2h"]["away_price"],
+            "spread_home": snapshot["spreads"]["home_point"],
+            "spread_away": snapshot["spreads"]["away_point"],
+            "total": snapshot["totals"]["line"],
+            "snapshot": snapshot,
+        })
+    games.sort(key=lambda g: g["time"])
+    return games
+
+
 def fetch_odds(sport_key="basketball_nba", regions="us", markets="h2h,spreads,totals", odds_format="american"):
     """Fetch odds from The Odds API for NBA or NFL games."""
     if not ODDS_API_KEY:
@@ -1654,9 +1687,38 @@ inputs = {
 result = predict_outcome(sport, target, inputs, models)
 apply_tracker_defaults(selected_market, target, result)
 
-tab_predictions, tab_odds, tab_tracker, tab_analytics, tab_chat = st.tabs(
-    ["📊 Predictions", "📈 Odds & Markets", "📝 Bet Tracker", "🔬 Analytics", "💬 Chat"]
+tab_today, tab_predictions, tab_odds, tab_tracker, tab_analytics, tab_chat = st.tabs(
+    ["🏀 Today's Games", "📊 Predictions", "📈 Odds & Markets", "📝 Bet Tracker", "🔬 Analytics", "💬 Chat"]
 )
+
+# --- Today's Games ---
+_todays = todays_games(odds_data, sport)
+with tab_today:
+    from datetime import datetime
+    st.subheader(f"Today's {sport} Games — {datetime.now().strftime('%A, %B %-d')}")
+    if _todays:
+        st.caption(f"{len(_todays)} game{'s' if len(_todays) != 1 else ''} scheduled today")
+        for g in _todays:
+            with st.container():
+                st.markdown(f"**{g['time']}**")
+                gcols = st.columns([3, 1, 1])
+                with gcols[0]:
+                    st.markdown(f"**{g['away']}** at **{g['home']}**")
+                with gcols[1]:
+                    if g["home_odds"] is not None and g["away_odds"] is not None:
+                        st.caption("Moneyline")
+                        st.write(f"{format_odds(g['home_odds'])} / {format_odds(g['away_odds'])}")
+                with gcols[2]:
+                    if g["total"] is not None:
+                        st.caption("Total")
+                        st.write(f"O/U {g['total']:.1f}")
+                if g["spread_home"] is not None:
+                    st.caption(f"Spread: {g['home']} {g['spread_home']:+.1f} | {g['away']} {g['spread_away']:+.1f}")
+                st.markdown("---")
+    elif not ODDS_API_KEY:
+        st.info("Set ODDS_API_KEY to load today's game schedule.")
+    else:
+        st.info(f"No {sport} games scheduled for today.")
 
 # --- Odds and value bet UI ---
 with tab_odds:
