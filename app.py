@@ -1023,6 +1023,97 @@ def build_nfl_training_data(seasons: list[int] | None = None) -> pd.DataFrame:
 
 st.set_page_config(page_title="Sportsbook Tool", layout="wide")
 
+# --- Mobile-responsive CSS ---
+st.markdown("""
+<style>
+/* Stack columns vertically on small screens */
+@media (max-width: 768px) {
+    /* Make main content full-width */
+    .block-container {
+        padding-left: 0.5rem !important;
+        padding-right: 0.5rem !important;
+        max-width: 100% !important;
+    }
+    /* Stack horizontal blocks vertically */
+    [data-testid="column"] {
+        width: 100% !important;
+        flex: 100% !important;
+        min-width: 100% !important;
+    }
+    /* Horizontal block: wrap to column */
+    [data-testid="stHorizontalBlock"] {
+        flex-wrap: wrap !important;
+        gap: 0.25rem !important;
+    }
+    /* Smaller title for phones */
+    h1 {
+        font-size: 1.5rem !important;
+    }
+    h2 {
+        font-size: 1.2rem !important;
+    }
+    h3 {
+        font-size: 1.05rem !important;
+    }
+    /* Team logos smaller on mobile */
+    [data-testid="stImage"] img {
+        max-width: 48px !important;
+    }
+    /* Metric cards: tighter spacing */
+    [data-testid="stMetric"] {
+        padding: 0.25rem 0 !important;
+    }
+    [data-testid="stMetricValue"] {
+        font-size: 1.1rem !important;
+    }
+    /* Dataframes scroll horizontally */
+    [data-testid="stDataFrame"] {
+        overflow-x: auto !important;
+    }
+    /* Sidebar: full-width overlay on mobile */
+    [data-testid="stSidebar"] {
+        min-width: 100% !important;
+        max-width: 100% !important;
+    }
+    /* Charts fill width */
+    [data-testid="stVegaLiteChart"],
+    [data-testid="stArrowVegaLiteChart"] {
+        width: 100% !important;
+    }
+}
+
+/* Medium screens: 2 columns instead of 4 */
+@media (min-width: 769px) and (max-width: 1024px) {
+    .block-container {
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
+    }
+    [data-testid="stHorizontalBlock"] {
+        flex-wrap: wrap !important;
+    }
+    [data-testid="column"] {
+        min-width: 45% !important;
+    }
+}
+
+/* Touch-friendly: bigger tap targets */
+@media (pointer: coarse) {
+    button, [data-testid="stButton"] button {
+        min-height: 44px !important;
+        font-size: 0.95rem !important;
+    }
+    .stSelectbox, .stSlider, .stNumberInput {
+        margin-bottom: 0.25rem !important;
+    }
+    /* Slider thumb larger for touch */
+    input[type="range"]::-webkit-slider-thumb {
+        width: 24px !important;
+        height: 24px !important;
+    }
+}
+</style>
+""", unsafe_allow_html=True)
+
 
 st.title("Sportsbook Tool")
 st.caption("Predict NBA and NFL outcomes: winner, spread, total, and parlays. Powered by real data.")
@@ -1746,14 +1837,12 @@ elif not GEMINI_API_KEY:
     st.caption("AI summary is disabled because GEMINI_API_KEY is not set.")
 
 st.write("### Bet tracker")
-tracker_filter_cols = st.columns(4)
+tracker_filter_cols = st.columns(2)
 with tracker_filter_cols[0]:
     filter_sport = st.selectbox("Filter sport", ["All"] + sorted({record.get("sport", "") for record in st.session_state.bet_history if record.get("sport")}), key="filter_sport")
-with tracker_filter_cols[1]:
     filter_market = st.selectbox("Filter market", ["All"] + sorted({record.get("market", "") for record in st.session_state.bet_history if record.get("market")}), key="filter_market")
-with tracker_filter_cols[2]:
+with tracker_filter_cols[1]:
     filter_book = st.selectbox("Filter book", ["All"] + sorted({record.get("bookmaker", "") for record in st.session_state.bet_history if record.get("bookmaker")}), key="filter_book")
-with tracker_filter_cols[3]:
     filter_tag = st.selectbox("Filter tag", ["All"] + sorted({record.get("tag", "") for record in st.session_state.bet_history if record.get("tag")}), key="filter_tag")
 
 bet_market = st.selectbox("Log market", ["Moneyline", "Spread", "Total"], key="bet_market")
