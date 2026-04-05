@@ -1319,6 +1319,62 @@ def compute_parlay_prob(probability: float, legs: int) -> float:
     return probability ** legs
 
 
+def parlay_decimal_odds(legs: list[dict]) -> float | None:
+    """Multiply decimal odds of all legs to get combined parlay decimal odds."""
+    combined = 1.0
+    for leg in legs:
+        dec = american_to_decimal(leg.get("odds"))
+        if dec is None:
+            return None
+        combined *= dec
+    return combined
+
+
+def parlay_payout(stake: float, legs: list[dict]) -> float | None:
+    """Calculate total payout (stake * combined decimal odds)."""
+    dec = parlay_decimal_odds(legs)
+    if dec is None:
+        return None
+    return stake * dec
+
+
+def parlay_implied_prob(legs: list[dict]) -> float | None:
+    """Combined implied probability (product of individual implied probs, no-vig)."""
+    prob = 1.0
+    for leg in legs:
+        odds = leg.get("odds")
+        if odds is None or odds == 0:
+            return None
+        prob *= implied_prob(odds)
+    return prob
+
+
+def build_parlay_leg_options(matchup_snapshots: list[dict]) -> list[dict]:
+    """Build selectable leg options from today's matchup snapshots."""
+    options = []
+    for snap in matchup_snapshots:
+        home = snap["home_team"]
+        away = snap["away_team"]
+        tag = f"{away} @ {home}"
+        # Moneyline
+        if snap["h2h"]["home_price"] is not None:
+            options.append({"label": f"{home} ML ({format_odds(snap['h2h']['home_price'])})", "matchup": tag, "market": "Moneyline", "pick": home, "odds": snap["h2h"]["home_price"]})
+        if snap["h2h"]["away_price"] is not None:
+            options.append({"label": f"{away} ML ({format_odds(snap['h2h']['away_price'])})", "matchup": tag, "market": "Moneyline", "pick": away, "odds": snap["h2h"]["away_price"]})
+        # Spread
+        if snap["spreads"]["home_point"] is not None and snap["spreads"]["home_price"] is not None:
+            options.append({"label": f"{home} {snap['spreads']['home_point']:+.1f} ({format_odds(snap['spreads']['home_price'])})", "matchup": tag, "market": "Spread", "pick": home, "odds": snap["spreads"]["home_price"]})
+        if snap["spreads"]["away_point"] is not None and snap["spreads"]["away_price"] is not None:
+            options.append({"label": f"{away} {snap['spreads']['away_point']:+.1f} ({format_odds(snap['spreads']['away_price'])})", "matchup": tag, "market": "Spread", "pick": away, "odds": snap["spreads"]["away_price"]})
+        # Totals
+        if snap["totals"]["line"] is not None:
+            if snap["totals"]["over_price"] is not None:
+                options.append({"label": f"Over {snap['totals']['line']:.1f} ({format_odds(snap['totals']['over_price'])}) — {tag}", "matchup": tag, "market": "Total", "pick": "Over", "odds": snap["totals"]["over_price"]})
+            if snap["totals"]["under_price"] is not None:
+                options.append({"label": f"Under {snap['totals']['line']:.1f} ({format_odds(snap['totals']['under_price'])}) — {tag}", "matchup": tag, "market": "Total", "pick": "Under", "odds": snap["totals"]["under_price"]})
+    return options
+
+
 @st.cache_data(ttl=3600)
 def get_injury_reports(sport: str, team: str = None):
     try:
@@ -1687,8 +1743,8 @@ inputs = {
 result = predict_outcome(sport, target, inputs, models)
 apply_tracker_defaults(selected_market, target, result)
 
-tab_today, tab_predictions, tab_odds, tab_tracker, tab_analytics, tab_chat = st.tabs(
-    ["🏀 Today's Games", "📊 Predictions", "📈 Odds & Markets", "📝 Bet Tracker", "🔬 Analytics", "💬 Chat"]
+tab_today, tab_predictions, tab_odds, tab_parlay, tab_tracker, tab_analytics, tab_chat = st.tabs(
+    ["🏀 Today's Games", "📊 Predictions", "📈 Odds & Markets", "🎯 Parlay Builder", "📝 Bet Tracker", "🔬 Analytics", "💬 Chat"]
 )
 
 # --- Today's Games ---
@@ -1719,6 +1775,72 @@ with tab_today:
         st.info("Set ODDS_API_KEY to load today's game schedule.")
     else:
         st.info(f"No {sport} games scheduled for today.")
+
+# --- Parlay Builder ---
+with tab_parlay:
+    st.subheader("🎯 Parlay Builder (up to 15 legs)")
+    st.caption("Select legs from today's available games. Odds, implied probability, and payout update live.")
+    _leg_options = build_parlay_leg_options(matchup_snapshots)
+    if _leg_options:
+        _leg_labels = [opt["label"] for opt in _leg_options]
+        if "parlay_legs_selected" not in st.session_state:
+            st.session_state.parlay_legs_selected = []
+        selected_labels = st.multiselect(
+            "Pick your legs (max 15)",
+            options=_leg_labels,
+            default=st.session_state.parlay_legs_selected,
+            max_selections=15,
+            key="parlay_builder_picks",
+        )
+        st.session_state.parlay_legs_selected = selected_labels
+        selected_legs = [opt for opt in _leg_options if opt["label"] in selected_labels]
+        parlay_stake = st.number_input("Parlay stake ($)", min_value=1.0, value=10.0, step=5.0, key="parlay_stake")
+        if selected_legs:
+            st.markdown("---")
+            st.write(f"### Parlay Slip — {len(selected_legs)} leg{'s' if len(selected_legs) != 1 else ''}")
+            for i, leg in enumerate(selected_legs, 1):
+                st.write(f"**Leg {i}:** {leg['label']}  \n"
+                         f"&nbsp;&nbsp;&nbsp;&nbsp;{leg['market']} • {leg['matchup']}")
+            st.markdown("---")
+            combined_dec = parlay_decimal_odds(selected_legs)
+            combined_prob = parlay_implied_prob(selected_legs)
+            payout = parlay_payout(parlay_stake, selected_legs)
+            profit = payout - parlay_stake if payout else None
+            # Convert combined decimal back to American for display
+            if combined_dec is not None and combined_dec > 1:
+                if combined_dec >= 2:
+                    combined_american = (combined_dec - 1) * 100
+                else:
+                    combined_american = -100 / (combined_dec - 1)
+            else:
+                combined_american = None
+            pcols = st.columns(4)
+            with pcols[0]:
+                st.metric("Combined Odds", format_odds(combined_american) if combined_american is not None else "N/A")
+            with pcols[1]:
+                st.metric("Implied Prob", f"{combined_prob:.2%}" if combined_prob is not None else "N/A")
+            with pcols[2]:
+                st.metric("Payout", f"${payout:.2f}" if payout is not None else "N/A")
+            with pcols[3]:
+                st.metric("Profit", f"${profit:.2f}" if profit is not None else "N/A")
+            # Risk assessment
+            if combined_prob is not None:
+                if combined_prob >= 0.25:
+                    st.success("Reasonable probability. This parlay has a realistic shot.")
+                elif combined_prob >= 0.10:
+                    st.warning("Low probability. Treat this as a long shot — size accordingly.")
+                elif combined_prob >= 0.03:
+                    st.warning("Very low probability. This is a lottery ticket — bet only what you can lose.")
+                else:
+                    st.error("Extremely unlikely. Combined odds are stacked heavily against you.")
+            if len(selected_legs) >= 6:
+                st.caption("Parlays with 6+ legs have a very low hit rate historically. Consider correlated legs or smaller combos.")
+        else:
+            st.info("Select at least one leg above to build your parlay.")
+    elif not ODDS_API_KEY:
+        st.info("Set ODDS_API_KEY to enable the parlay builder.")
+    else:
+        st.info(f"No {sport} games with odds available right now to build a parlay.")
 
 # --- Odds and value bet UI ---
 with tab_odds:
