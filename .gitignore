@@ -7,3 +7,4 @@ __pycache__/
 bet_history.csv
 model_history.json
 user_preferences.json
+.odds_cache/
