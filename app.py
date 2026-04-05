@@ -1062,11 +1062,28 @@ st.markdown("""
 <style>
 /* Stack columns vertically on small screens */
 @media (max-width: 768px) {
-    /* Make main content full-width */
+    /* Make main content full-width on mobile */
     .block-container {
         padding-left: 0.5rem !important;
         padding-right: 0.5rem !important;
         max-width: 100% !important;
+    }
+    /* Tab bar: horizontal scroll instead of wrapping/clipping */
+    [data-testid="stTabs"] > div[role="tablist"] {
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        flex-wrap: nowrap !important;
+        gap: 0 !important;
+    }
+    [data-testid="stTabs"] > div[role="tablist"]::-webkit-scrollbar {
+        display: none;
+    }
+    [data-testid="stTabs"] button[role="tab"] {
+        flex-shrink: 0 !important;
+        font-size: 0.8rem !important;
+        padding: 0.4rem 0.6rem !important;
+        white-space: nowrap !important;
     }
     /* Stack horizontal blocks vertically */
     [data-testid="column"] {
@@ -1093,7 +1110,7 @@ st.markdown("""
     [data-testid="stImage"] img {
         max-width: 48px !important;
     }
-    /* Metric cards: tighter spacing */
+    /* Metric cards: tighter spacing, stacked on mobile */
     [data-testid="stMetric"] {
         padding: 0.25rem 0 !important;
     }
@@ -1114,6 +1131,20 @@ st.markdown("""
     [data-testid="stArrowVegaLiteChart"] {
         width: 100% !important;
     }
+    /* Multiselect chips: smaller on mobile */
+    [data-testid="stMultiSelect"] span[data-baseweb="tag"] {
+        font-size: 0.75rem !important;
+        padding: 0.15rem 0.35rem !important;
+    }
+    /* Number inputs & selects: full width */
+    [data-testid="stNumberInput"],
+    [data-testid="stSelectbox"] {
+        width: 100% !important;
+    }
+    /* Expanders: full width with tighter padding */
+    details[data-testid="stExpander"] {
+        padding: 0 !important;
+    }
 }
 
 /* Medium screens: 2 columns instead of 4 */
@@ -1127,6 +1158,10 @@ st.markdown("""
     }
     [data-testid="column"] {
         min-width: 45% !important;
+    }
+    [data-testid="stTabs"] button[role="tab"] {
+        font-size: 0.85rem !important;
+        padding: 0.4rem 0.7rem !important;
     }
 }
 
@@ -1143,6 +1178,10 @@ st.markdown("""
     input[type="range"]::-webkit-slider-thumb {
         width: 24px !important;
         height: 24px !important;
+    }
+    /* Tab buttons easier to tap */
+    [data-testid="stTabs"] button[role="tab"] {
+        min-height: 40px !important;
     }
 }
 </style>
