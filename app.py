@@ -1,5 +1,6 @@
 import os
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 import streamlit as st
 import numpy as np
@@ -457,7 +458,6 @@ def todays_games(odds_data, sport):
     """Filter odds_data to games commencing today (local time) and return display-ready list."""
     if not odds_data:
         return []
-    from datetime import datetime, timezone
     today = datetime.now().date()
     games = []
     for game in odds_data:
@@ -1354,10 +1354,6 @@ def predict_outcome(sport: str, target: str, inputs: dict, models: tuple):
     return {}
 
 
-def compute_parlay_prob(probability: float, legs: int) -> float:
-    return probability ** legs
-
-
 def parlay_decimal_odds(legs: list[dict]) -> float | None:
     """Multiply decimal odds of all legs to get combined parlay decimal odds."""
     combined = 1.0
@@ -1734,19 +1730,14 @@ with st.sidebar:
         st.session_state["wind_speed"] = 0
         st.session_state["precipitation"] = 0
     st.divider()
-    st.header("3. Parlay Calculator")
-    parlay_legs = st.slider("# of parlay legs", 1, 5, 1)
-    parlay_choice = st.selectbox("Parlay pick", ["Home win", "Away win"])
-    st.caption("Estimate the chance of all legs hitting together.")
-    st.divider()
-    st.header("4. Bankroll")
+    st.header("3. Bankroll")
     bankroll = st.number_input("Bankroll ($)", min_value=50.0, value=500.0, step=50.0)
     flat_bet = st.number_input("Flat bet size ($)", min_value=1.0, value=25.0, step=1.0)
     use_ai = st.checkbox("AI betting summary", value=True)
     if not GEMINI_API_KEY:
         st.caption("Set GEMINI_API_KEY to enable AI summaries.")
     st.divider()
-    st.header("5. Injury Reports")
+    st.header("4. Injury Reports")
     injury_sport = st.selectbox("Injury sport", ["NBA", "NFL"], key="injury_sport")
     if injury_sport == "NBA":
         nba_teams = ["Atlanta Hawks", "Boston Celtics", "Brooklyn Nets", "Charlotte Hornets", "Chicago Bulls", "Cleveland Cavaliers", "Dallas Mavericks", "Denver Nuggets", "Detroit Pistons", "Golden State Warriors", "Houston Rockets", "Indiana Pacers", "LA Clippers", "Los Angeles Lakers", "Memphis Grizzlies", "Miami Heat", "Milwaukee Bucks", "Minnesota Timberwolves", "New Orleans Pelicans", "New York Knicks", "Oklahoma City Thunder", "Orlando Magic", "Philadelphia 76ers", "Phoenix Suns", "Portland Trail Blazers", "Sacramento Kings", "San Antonio Spurs", "Toronto Raptors", "Utah Jazz", "Washington Wizards"]
@@ -1789,7 +1780,6 @@ tab_today, tab_predictions, tab_odds, tab_parlay, tab_tracker, tab_analytics, ta
 # --- Today's Games ---
 _todays = todays_games(odds_data, sport)
 with tab_today:
-    from datetime import datetime
     st.subheader(f"Today's {sport} Games — {datetime.now().strftime('%A, %B %-d')}")
     if _todays:
         st.caption(f"{len(_todays)} game{'s' if len(_todays) != 1 else ''} scheduled today")
@@ -1822,16 +1812,12 @@ with tab_parlay:
     _leg_options = build_parlay_leg_options(matchup_snapshots)
     if _leg_options:
         _leg_labels = [opt["label"] for opt in _leg_options]
-        if "parlay_legs_selected" not in st.session_state:
-            st.session_state.parlay_legs_selected = []
         selected_labels = st.multiselect(
             "Pick your legs (max 15)",
             options=_leg_labels,
-            default=st.session_state.parlay_legs_selected,
             max_selections=15,
             key="parlay_builder_picks",
         )
-        st.session_state.parlay_legs_selected = selected_labels
         selected_legs = [opt for opt in _leg_options if opt["label"] in selected_labels]
         parlay_stake = st.number_input("Parlay stake ($)", min_value=1.0, value=10.0, step=5.0, key="parlay_stake")
         if selected_legs:
@@ -1886,32 +1872,39 @@ with tab_odds:
     st.subheader("Live Sportsbook Odds & Value Bets")
     st.caption("Moneyline value bets include implied probability and EV. Spread and total rows compare your model against the live line.")
     if matchup_snapshots:
+        _selected_home = selected_market["home_team"] if selected_market else None
+        _selected_away = selected_market["away_team"] if selected_market else None
         for snapshot in matchup_snapshots:
             home = snapshot["home_team"]
             away = snapshot["away_team"]
+            is_selected = home == _selected_home and away == _selected_away
             st.markdown(f"**{away} at {home}**")
             home_odds = snapshot["h2h"]["home_price"]
             away_odds = snapshot["h2h"]["away_price"]
-            model_home_prob = result.get("home_win_prob") if target == "Game winner" else None
-            model_away_prob = result.get("away_win_prob") if target == "Game winner" else None
             home_imp = implied_prob(home_odds) if home_odds else None
             away_imp = implied_prob(away_odds) if away_odds else None
-            value_home = model_home_prob is not None and home_imp is not None and model_home_prob > home_imp
-            value_away = model_away_prob is not None and away_imp is not None and model_away_prob > away_imp
-            ev_home = expected_value(model_home_prob, home_odds, flat_bet)
-            ev_away = expected_value(model_away_prob, away_odds, flat_bet)
-            st.write(
-                f"{home}: Odds {format_odds(home_odds)}, Implied Prob {format_percent(home_imp)}, "
-                f"Model Prob {format_percent(model_home_prob)}, EV ${format_number(ev_home)}"
-            )
-            if value_home:
-                st.success(f"Value bet: {home}")
-            st.write(
-                f"{away}: Odds {format_odds(away_odds)}, Implied Prob {format_percent(away_imp)}, "
-                f"Model Prob {format_percent(model_away_prob)}, EV ${format_number(ev_away)}"
-            )
-            if value_away:
-                st.success(f"Value bet: {away}")
+            if is_selected:
+                model_home_prob = result.get("home_win_prob") if target == "Game winner" else None
+                model_away_prob = result.get("away_win_prob") if target == "Game winner" else None
+                value_home = model_home_prob is not None and home_imp is not None and model_home_prob > home_imp
+                value_away = model_away_prob is not None and away_imp is not None and model_away_prob > away_imp
+                ev_home = expected_value(model_home_prob, home_odds, flat_bet)
+                ev_away = expected_value(model_away_prob, away_odds, flat_bet)
+                st.write(
+                    f"{home}: Odds {format_odds(home_odds)}, Implied {format_percent(home_imp)}, "
+                    f"Model {format_percent(model_home_prob)}, EV ${format_number(ev_home)}"
+                )
+                if value_home:
+                    st.success(f"Value bet: {home}")
+                st.write(
+                    f"{away}: Odds {format_odds(away_odds)}, Implied {format_percent(away_imp)}, "
+                    f"Model {format_percent(model_away_prob)}, EV ${format_number(ev_away)}"
+                )
+                if value_away:
+                    st.success(f"Value bet: {away}")
+            else:
+                st.write(f"{home}: {format_odds(home_odds)} (Implied {format_percent(home_imp)})")
+                st.write(f"{away}: {format_odds(away_odds)} (Implied {format_percent(away_imp)})")
             if snapshot["spreads"]["home_point"] is not None:
                 predicted_margin = result.get("predicted_margin")
                 spread_edge = predicted_margin + snapshot["spreads"]["home_point"] if predicted_margin is not None else None
@@ -1965,14 +1958,14 @@ with tab_predictions:
                 if away_logo:
                     st.image(away_logo, width=72)
             with logo_cols[1]:
-                st.write("### Selected matchup")
+                st.subheader("Selected matchup")
                 st.write(f"**{selected_market['away_team']} at {selected_market['home_team']}**")
                 st.caption(sportsbook_summary(selected_market))
             with logo_cols[2]:
                 if home_logo:
                     st.image(home_logo, width=72)
         else:
-            st.write("### Selected matchup")
+            st.subheader("Selected matchup")
         st.write(f"**Home rating:** {home_rating}")
         st.write(f"**Away rating:** {away_rating}")
         st.write(f"**Home form:** {home_form:.2f}")
@@ -1987,21 +1980,11 @@ with tab_predictions:
             st.write(f"**Precipitation:** {'Yes' if precipitation else 'No'}")
 
     with cols[1]:
-        st.write("### Prediction output")
+        st.subheader("Prediction")
         if target == "Game winner":
             st.metric("Home team win probability", f"{result['home_win_prob']:.1%}")
             st.metric("Away team win probability", f"{result['away_win_prob']:.1%}")
             st.success(result["prediction"])
-
-            parlay_prob = compute_parlay_prob(
-                result["home_win_prob"] if parlay_choice == "Home win" else result["away_win_prob"],
-                parlay_legs,
-            )
-            st.write(f"**Parlay pick:** {parlay_choice}")
-            st.write(f"**Parlay legs:** {parlay_legs}")
-            st.write(f"**Parlay probability:** {parlay_prob:.2%}")
-            if parlay_legs > 1:
-                st.write(f"**Approx. parlay odds:** {1 / parlay_prob:.1f}:1")
         elif target == "Point spread":
             st.metric("Predicted margin", f"{result['predicted_margin']:.1f} points")
             st.success(result["predicted_winner"])
@@ -2012,7 +1995,7 @@ with tab_predictions:
     if selected_market is not None:
         _h2h_df = h2h_matchup_history(data, selected_market["home_team"], selected_market["away_team"], sport)
         if not _h2h_df.empty:
-            st.write("### Head-to-Head History")
+            st.subheader("Head-to-Head History")
             st.caption(f"Last {len(_h2h_df)} meetings between these teams from training data.")
             if "home_win" in _h2h_df.columns:
                 home_wins = int(_h2h_df["home_win"].sum())
@@ -2027,9 +2010,7 @@ with tab_predictions:
                     st.metric("Avg margin (home perspective)", f"{avg_margin:+.1f}" if avg_margin is not None else "N/A")
             st.dataframe(_h2h_df, width="stretch")
 
-    st.markdown("---")
-
-    st.write("## Betting Edge")
+    st.subheader("Betting Edge")
     recommendation = build_bet_recommendation(result, target, selected_market)
     st.write(recommendation)
 
@@ -2054,14 +2035,14 @@ with tab_predictions:
             f"Market snapshot: {selected_market}. Recommendation: {recommendation}"
         )
         ai_summary = maybe_generate_ai_summary(ai_prompt)
-        st.write("### AI Summary")
+        st.subheader("AI Summary")
         st.write(ai_summary or recommendation)
     elif not GEMINI_API_KEY:
         st.caption("AI summary is disabled because GEMINI_API_KEY is not set.")
 
 
 with tab_tracker:
-    st.write("### Bet tracker")
+    st.subheader("Bet Tracker")
     tracker_filter_cols = st.columns(2)
     with tracker_filter_cols[0]:
         filter_sport = st.selectbox("Filter sport", ["All"] + sorted({record.get("sport", "") for record in st.session_state.bet_history if record.get("sport")}), key="filter_sport")
@@ -2103,7 +2084,6 @@ with tab_tracker:
     if st.button("Add bet to tracker"):
         clv = closing_line_value(bet_odds, closing_odds)
         line_value = None
-        score_fields = {}
         if selected_market is not None:
             if bet_market == "Spread":
                 line_value = selected_market["spreads"]["home_point"] if bet_side == "Home" else selected_market["spreads"]["away_point"]
@@ -2143,7 +2123,6 @@ with tab_tracker:
                 "result": bet_result,
                 "tag": bet_tag,
                 "notes": bet_notes,
-                **score_fields,
             }
         )
         save_bet_history(st.session_state.bet_history)
@@ -2152,7 +2131,7 @@ with tab_tracker:
     with settle_cols[0]:
         auto_settle_requested = st.button("Auto-settle recent bets")
     with settle_cols[1]:
-        settlement_sport = st.selectbox("Settlement sport", [sport], key="settlement_sport")
+        settlement_sport = st.selectbox("Settlement sport", ["NBA", "NFL"], index=0 if sport == "NBA" else 1, key="settlement_sport")
 
     if auto_settle_requested and st.session_state.bet_history:
         settlement_key = "basketball_nba" if settlement_sport == "NBA" else "americanfootball_nfl"
@@ -2213,7 +2192,7 @@ with tab_tracker:
             chart_df = filtered_history.reset_index(drop=True).copy()
             chart_df["bet_number"] = np.arange(1, len(chart_df) + 1)
             chart_df["cumulative_profit"] = chart_df["profit"].cumsum()
-            st.write("### Tracker charts")
+            st.subheader("Tracker Charts")
             st.line_chart(chart_df.set_index("bet_number")[["cumulative_profit"]])
             if "tag" in filtered_history.columns:
                 grouped_profit = filtered_history.groupby(filtered_history["tag"].fillna("").replace("", "untagged"))["profit"].sum().sort_values(ascending=False)
@@ -2224,7 +2203,7 @@ with tab_tracker:
                 review_df["week"] = review_df["logged_at"].dt.to_period("W").astype(str)
                 weekly_profit = review_df.groupby("week")["profit"].sum()
                 if not weekly_profit.empty:
-                    st.write("### Weekly review")
+                    st.subheader("Weekly Review")
                     st.bar_chart(weekly_profit)
                 market_review = review_df.groupby("market")["profit"].agg(["sum", "count"]).rename(columns={"sum": "profit", "count": "bets"})
                 if not market_review.empty:
@@ -2235,13 +2214,13 @@ with tab_tracker:
 
 with tab_analytics:
     if show_data:
-        st.write("### Sample training data")
+        st.subheader("Sample Training Data")
         st.dataframe(data.head())
-        st.write("### Training dataset statistics")
+        st.subheader("Training Dataset Statistics")
         st.write(data[["margin", "total_score", "home_win"]].describe())
 
 
-    st.write("### Model accuracy")
+    st.subheader("Model Accuracy")
     try:
         latest_game_date_str = latest_game_date.date().isoformat() if pd.notna(latest_game_date) else None
         features = ["rating_diff", "form_diff", "rest_diff", "home_advantage", "temperature", "wind_speed", "precipitation"]
@@ -2336,7 +2315,7 @@ with tab_analytics:
                 st.dataframe(display_history, width="stretch")
 
         # --- Feature Importance ---
-        st.write("### Feature Importance")
+        st.subheader("Feature Importance")
         st.caption("Model coefficient magnitudes — how much each input moves the prediction.")
         fi = feature_importance_data(models, sport)
         if not fi.empty:
@@ -2356,9 +2335,7 @@ with tab_analytics:
 
 
 with tab_chat:
-    # --- Betting Assistant Chat ---
-    st.markdown("---")
-    st.write("## Betting Assistant")
+    st.subheader("Betting Assistant")
     st.caption("Ask anything about the current matchup, betting strategy, bankroll management, or value hunting.")
 
     if not GEMINI_API_KEY or genai is None:
