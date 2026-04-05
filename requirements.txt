@@ -3,5 +3,7 @@ pandas
 scikit-learn
 numpy
 requests
+python-dotenv
 nba_api
 nfl_data_py
+google-genai
